@@ -3,6 +3,7 @@ using ConstrutoraApi.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ConstrutoraApi.Migrations
 {
     [DbContext(typeof(ConstrutoraDataContext))]
-    partial class ConstrutoraDataContextModelSnapshot : ModelSnapshot
+    [Migration("20260304222021_UnidadeMedidaString")]
+    partial class UnidadeMedidaString
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -84,9 +87,44 @@ namespace ConstrutoraApi.Migrations
                         .HasMaxLength(25)
                         .HasColumnType("nvarchar");
 
+                    b.Property<int?>("UnidadeMedidaId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
+                    b.HasIndex("UnidadeMedidaId");
+
                     b.ToTable("OrcamentosObras");
+                });
+
+            modelBuilder.Entity("ConstrutoraApi.Models.UnidadeMedida", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Sigla")
+                        .IsRequired()
+                        .HasMaxLength(25)
+                        .HasColumnType("nvarchar(25)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("UnidadeMedidas");
+                });
+
+            modelBuilder.Entity("ConstrutoraApi.Models.OrcamentoObra", b =>
+                {
+                    b.HasOne("ConstrutoraApi.Models.UnidadeMedida", null)
+                        .WithMany("Orcamentos")
+                        .HasForeignKey("UnidadeMedidaId");
+                });
+
+            modelBuilder.Entity("ConstrutoraApi.Models.UnidadeMedida", b =>
+                {
+                    b.Navigation("Orcamentos");
                 });
 #pragma warning restore 612, 618
         }

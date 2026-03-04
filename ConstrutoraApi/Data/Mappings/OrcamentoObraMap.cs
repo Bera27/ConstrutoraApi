@@ -27,6 +27,10 @@ namespace ConstrutoraApi.Data.Mappings
             builder.Property(o => o.Descricao)
                 .HasMaxLength(255);
 
+            builder.Property(o => o.UnidadeMedida)
+                .HasColumnType("nvarchar")
+                .HasMaxLength(25);
+
             builder.Property(o => o.Qtd)
                 .HasColumnType("decimal(18,4)");
 
@@ -48,7 +52,7 @@ namespace ConstrutoraApi.Data.Mappings
             builder.Property(o => o.Bdi)
                 .HasColumnType("decimal(5,2)");
 
-            builder.Property(o => o.ProcoUnit)
+            builder.Property(o => o.PrecoUnit)
                 .HasColumnType("decimal(18,2)");
 
             builder.Property(o => o.PrecoTotal)
