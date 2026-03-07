@@ -4,6 +4,7 @@ using ConstrutoraApi.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ConstrutoraApi.Migrations
 {
     [DbContext(typeof(ConstrutoraDataContext))]
-    partial class ConstrutoraDataContextModelSnapshot : ModelSnapshot
+    [Migration("20260307050135_PlanilhaObra")]
+    partial class PlanilhaObra
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

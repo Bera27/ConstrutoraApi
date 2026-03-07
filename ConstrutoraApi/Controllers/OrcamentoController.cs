@@ -5,6 +5,7 @@ using ClosedXML.Excel;
 using ConstrutoraApi.Data;
 using ConstrutoraApi.Models;
 using ConstrutoraApi.ViewModels;
+using DocumentFormat.OpenXml.EMMA;
 using ExcelDataReader;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -58,8 +59,11 @@ namespace ConstrutoraApi.Controllers
         }
 
         [HttpPost("v1/orcamentos/importar")]
-        public async Task<IActionResult> ImportarPlanilha(IFormFile arquivo,
-        [FromServices] ConstrutoraDataContext context)
+        public async Task<IActionResult> ImportarPlanilha(
+            IFormFile arquivo,
+            [FromServices] ConstrutoraDataContext context,
+            [FromForm] string nome,
+            [FromForm] DateTime prazo)
         {
             if (arquivo == null || arquivo.Length == 0)
                 return BadRequest(new ResultViewModel<OrcamentoObra>("Nenhum Arquivo Enviado"));
@@ -69,54 +73,62 @@ namespace ConstrutoraApi.Controllers
 
             try
             {
+                var planilha = new PlanilhaObra
+                {
+                    Nome = nome,
+                    Prazo = prazo
+                };
+
+
+
                 using (var stream = arquivo.OpenReadStream())
                 {
-                    using (var reader = ExcelReaderFactory.CreateReader(stream))
+                    using var reader = ExcelReaderFactory.CreateReader(stream);
+                    
+                    // A configuração abaixo indica que a PRIMEIRA LINHA contém os cabeçalhos
+                    var result = reader.AsDataSet(new ExcelDataSetConfiguration()
                     {
-                        // A configuração abaixo indica que a PRIMEIRA LINHA contém os cabeçalhos
-                        var result = reader.AsDataSet(new ExcelDataSetConfiguration()
+                        ConfigureDataTable = (_) => new ExcelDataTableConfiguration()
                         {
-                            ConfigureDataTable = (_) => new ExcelDataTableConfiguration()
-                            {
-                                UseHeaderRow = true
-                            }
-                        });
-
-                        var tabela = result.Tables[0];
-
-                        foreach (DataRow row in tabela.Rows)
-                        {
-                            // Validação para pular linhas vazias
-                            if (string.IsNullOrWhiteSpace(row[0]?.ToString()))
-                                continue;
-
-                            var orcamento = new OrcamentoObra
-                            {
-                                Item = row[0].ToString(),
-                                Codigo = row[1].ToString(),
-                                Servico = row[2].ToString(),
-                                Descricao = row[3].ToString(),
-                                UnidadeMedida = row[4].ToString(),
-                                Qtd = ObterDecimal(row[5]),
-                                CustoMat = ObterDecimal(row[6]),
-                                CustoMO = ObterDecimal(row[7]),
-                                CustoEquip = ObterDecimal(row[8]),
-                                CustoUnitTotal = ObterDecimal(row[9]),
-                                CustoTotal = ObterDecimal(row[10]),
-                                Bdi = ObterDecimal(row[11]),
-                                PrecoUnit = ObterDecimal(row[12]),
-                                PrecoTotal = ObterDecimal(row[13]),
-                                Peso = ObterDecimal(row[14])
-                            };
-
-                            await context.OrcamentosObras.AddAsync(orcamento);
+                            UseHeaderRow = true
                         }
+                    });
 
-                        await context.SaveChangesAsync();
+                    var tabela = result.Tables[0];
+
+                    foreach (DataRow row in tabela.Rows)
+                    {
+                        // Validação para pular linhas vazias
+                        if (string.IsNullOrWhiteSpace(row[0]?.ToString()))
+                            continue;
+
+                        var orcamento = new OrcamentoObra
+                        {
+                            Item = row[0].ToString(),
+                            Codigo = row[1].ToString(),
+                            Servico = row[2].ToString(),
+                            Descricao = row[3].ToString(),
+                            UnidadeMedida = row[4].ToString(),
+                            Qtd = ObterDecimal(row[5]),
+                            CustoMat = ObterDecimal(row[6]),
+                            CustoMO = ObterDecimal(row[7]),
+                            CustoEquip = ObterDecimal(row[8]),
+                            CustoUnitTotal = ObterDecimal(row[9]),
+                            CustoTotal = ObterDecimal(row[10]),
+                            Bdi = ObterDecimal(row[11]),
+                            PrecoUnit = ObterDecimal(row[12]),
+                            PrecoTotal = ObterDecimal(row[13]),
+                            Peso = ObterDecimal(row[14])
+                        };
+
+                        planilha.Obras.Add(orcamento);
                     }
                 }
 
-                return Ok($"Planilha importada com sucesso! - {arquivo.FileName}");
+                await context.PlanilhaObra.AddAsync(planilha);
+                await context.SaveChangesAsync();
+
+                return Ok(new {message = $"Planilha '{nome}' importada com {planilha.Obras.Count} itens!"});
             }
             catch (Exception ex)
             {
@@ -124,14 +136,16 @@ namespace ConstrutoraApi.Controllers
             }
         }
 
-        [HttpGet("v1/orcamento/exportar")]
+        [HttpGet("v1/orcamento/exportar/{id:int}")]
         public async Task<IActionResult> Exportar(
-            [FromServices] ConstrutoraDataContext context)
+            [FromServices] ConstrutoraDataContext context,
+            [FromRoute] int id)
         {
             try
             {
                 var orcamento = await context.OrcamentosObras
                                         .AsNoTracking()
+                                        .Where(x => x.IdPlanilhaObra == id)
                                         .ToListAsync();
 
                 if (orcamento == null)
@@ -146,10 +160,6 @@ namespace ConstrutoraApi.Controllers
                 {
                     worksheet.Cell(1, i + 1).Value = cabecalhos[i];
                 }
-
-                var headerRow = worksheet.Range("A1:O1");
-                headerRow.Style.Font.Bold = true;
-                headerRow.Style.Fill.BackgroundColor = XLColor.LightGreen;
 
                 int linha = 2;
                 foreach (var item in orcamento)
@@ -172,17 +182,24 @@ namespace ConstrutoraApi.Controllers
                     linha++;
                 }
 
+                // Cria a tabela e aplica tema
+                int lastRow = linha - 1;
+                var range = worksheet.Range(1, 1, lastRow, cabecalhos.Length);
+                var table = range.CreateTable("TabelaCustos");
+
+                table.Theme = XLTableTheme.TableStyleMedium9;
+                table.ShowAutoFilter = true;
+                table.ShowTotalsRow = true;
+
                 worksheet.Columns().AdjustToContents();
 
-                using (var stream = new MemoryStream())
-                {
-                    workbook.SaveAs(stream);
-                    var conteudo = stream.ToArray();
+                using var stream = new MemoryStream();
+                workbook.SaveAs(stream);
+                var conteudo = stream.ToArray();
 
-                    return File(conteudo,
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                "Relatorio_Custos.xlsx");
-                }
+                return File(conteudo,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            $"Relatorio_Custos.xlsx");
             }
             catch(Exception ex)
             {

@@ -18,5 +18,8 @@
         public decimal PrecoUnit { get; set; }
         public decimal PrecoTotal { get; set; }
         public decimal Peso { get; set; }
+
+        public int IdPlanilhaObra { get; set; }
+        public PlanilhaObra PlanilhaObra { get; set; }
     }
 }

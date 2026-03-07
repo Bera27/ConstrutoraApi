@@ -60,6 +60,11 @@ namespace ConstrutoraApi.Data.Mappings
 
             builder.Property(o => o.Peso)
                 .HasColumnType("decimal(18,4)");
+
+            builder.HasOne(o => o.PlanilhaObra)
+                   .WithMany(o => o.Obras)
+                   .HasForeignKey(x => x.IdPlanilhaObra)
+                   .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }
