@@ -1,11 +1,13 @@
 using System.Data;
 using System.Globalization;
 using System.Text;
+using ClosedXML.Excel;
 using ConstrutoraApi.Data;
 using ConstrutoraApi.Models;
 using ConstrutoraApi.ViewModels;
 using ExcelDataReader;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace ConstrutoraApi.Controllers
 {
@@ -15,7 +17,47 @@ namespace ConstrutoraApi.Controllers
         public OrcamentoController()
         => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-        [HttpPost("v1/importar")]
+        [HttpGet("v1/orcamentos")]
+        public async Task<IActionResult> Get(
+            [FromServices] ConstrutoraDataContext context)
+        {
+            try
+            {
+                var orcamentos = await context.OrcamentosObras
+                                .AsNoTracking()
+                                .ToListAsync();
+
+                return Ok(new ResultViewModel<List<OrcamentoObra>>(orcamentos));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ResultViewModel<string>($"ESAX10 - Erro ao carregar as planilhas: {ex.Message}"));
+            }
+        }
+
+        [HttpGet("v1/orcamento/{id:int}")]
+        public async Task<IActionResult> GetById(
+            [FromServices] ConstrutoraDataContext context,
+            [FromRoute] int id)
+        {
+            try
+            {
+                var orcamento = await context.OrcamentosObras
+                                    .AsNoTracking()
+                                    .FirstOrDefaultAsync(x => x.Id == id);
+
+                if (orcamento == null)
+                    return NotFound(new ResultViewModel<string>("Planilha de orçamento de obra não encontrado"));
+
+                return Ok(new ResultViewModel<OrcamentoObra>(orcamento));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ResultViewModel<string>($"ESWS20 - Erro ao carregar a planilha: {ex.Message}"));
+            }
+        }
+
+        [HttpPost("v1/orcamentos/importar")]
         public async Task<IActionResult> ImportarPlanilha(IFormFile arquivo,
         [FromServices] ConstrutoraDataContext context)
         {
@@ -74,11 +116,100 @@ namespace ConstrutoraApi.Controllers
                     }
                 }
 
-                return Created($"v1/importar/{arquivo}", new ResultViewModel<string>(arquivo.FileName));
+                return Ok($"Planilha importada com sucesso! - {arquivo.FileName}");
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new ResultViewModel<string>($"Erro ao processar a planilha: {ex.Message}"));
+            }
+        }
+
+        [HttpGet("v1/orcamento/exportar")]
+        public async Task<IActionResult> Exportar(
+            [FromServices] ConstrutoraDataContext context)
+        {
+            try
+            {
+                var orcamento = await context.OrcamentosObras
+                                        .AsNoTracking()
+                                        .ToListAsync();
+
+                if (orcamento == null)
+                    return NotFound(new ResultViewModel<string>("Planilha não encontrada!"));
+
+                using var workbook = new XLWorkbook();
+                var worksheet = workbook.AddWorksheet("Custos de Obra");
+
+                // Cria o cabeçalho
+                string[] cabecalhos = { "Item", "Código", "Serviço", "Descrição", "UnidadeMedida", "Qtd", "CustoMat", "CustoMO", "CustoEquip", "CustoUnitTotal", "CustoTotal", "BDI", "PreçoUnit", "PreçoTotal", "Peso" };
+                for (int i = 0; i < cabecalhos.Length; i++)
+                {
+                    worksheet.Cell(1, i + 1).Value = cabecalhos[i];
+                }
+
+                var headerRow = worksheet.Range("A1:O1");
+                headerRow.Style.Font.Bold = true;
+                headerRow.Style.Fill.BackgroundColor = XLColor.LightGreen;
+
+                int linha = 2;
+                foreach (var item in orcamento)
+                {
+                    worksheet.Cell(linha, 1).Value = item.Item;
+                    worksheet.Cell(linha, 2).Value = item.Codigo;
+                    worksheet.Cell(linha, 3).Value = item.Servico;
+                    worksheet.Cell(linha, 4).Value = item.Descricao;
+                    worksheet.Cell(linha, 5).Value = item.UnidadeMedida;
+                    worksheet.Cell(linha, 6).Value = item.Qtd;
+                    worksheet.Cell(linha, 7).Value = item.CustoMat;
+                    worksheet.Cell(linha, 8).Value = item.CustoMO;
+                    worksheet.Cell(linha, 9).Value = item.CustoEquip;
+                    worksheet.Cell(linha, 10).Value = item.CustoUnitTotal;
+                    worksheet.Cell(linha, 11).Value = item.CustoTotal;
+                    worksheet.Cell(linha, 12).Value = item.Bdi;
+                    worksheet.Cell(linha, 13).Value = item.PrecoUnit;
+                    worksheet.Cell(linha, 14).Value = item.PrecoTotal;
+                    worksheet.Cell(linha, 15).Value = item.Peso;
+                    linha++;
+                }
+
+                worksheet.Columns().AdjustToContents();
+
+                using (var stream = new MemoryStream())
+                {
+                    workbook.SaveAs(stream);
+                    var conteudo = stream.ToArray();
+
+                    return File(conteudo,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "Relatorio_Custos.xlsx");
+                }
+            }
+            catch(Exception ex)
+            {
+                return StatusCode(500, new ResultViewModel<string>($"Erro ao exportar a planilha: {ex.Message}"));
+            }
+        }
+
+        [HttpDelete("v1/orcamento/{id:int}")]
+        public async Task<IActionResult> Delete(
+            [FromServices] ConstrutoraDataContext context,
+            [FromRoute] int id)
+        {
+            try
+            {
+                var orcamento = await context.OrcamentosObras.FirstOrDefaultAsync(x => x.Id == id);
+
+                if (orcamento == null)
+                    NotFound(new ResultViewModel<string>("Planilha de orçamento de obra não encontrado"));
+
+                context.OrcamentosObras.Remove(orcamento);
+                await context.SaveChangesAsync();
+
+                return Ok("Planilha removida com sucesso!");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ResultViewModel<string>($"Erro ao remover a planilha: {ex.Message}"));
             }
         }
 
