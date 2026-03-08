@@ -1,12 +1,8 @@
 using System.Data;
-using System.Globalization;
-using System.Text;
-using ClosedXML.Excel;
 using ConstrutoraApi.Data;
+using ConstrutoraApi.Interfaces;
 using ConstrutoraApi.Models;
 using ConstrutoraApi.ViewModels;
-using DocumentFormat.OpenXml.EMMA;
-using ExcelDataReader;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,20 +11,26 @@ namespace ConstrutoraApi.Controllers
     [Route("api/")]
     public class OrcamentoController : ControllerBase
     {
-        public OrcamentoController()
-        => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        private readonly ConstrutoraDataContext _context;
+        private readonly IExcelService _excelService;
+
+        public OrcamentoController(ConstrutoraDataContext context, IExcelService excelService)
+        {
+            _context = context;
+            _excelService = excelService;
+        }
 
         [HttpGet("v1/orcamentos")]
-        public async Task<IActionResult> Get(
-            [FromServices] ConstrutoraDataContext context)
+        public async Task<IActionResult> Get()
         {
             try
             {
-                var orcamentos = await context.OrcamentosObras
+                var planilhas = await _context.PlanilhaObra
                                 .AsNoTracking()
+                                .Include(x => x.Obras)
                                 .ToListAsync();
 
-                return Ok(new ResultViewModel<List<OrcamentoObra>>(orcamentos));
+                return Ok(new ResultViewModel<List<PlanilhaObra>>(planilhas));
             }
             catch (Exception ex)
             {
@@ -38,19 +40,19 @@ namespace ConstrutoraApi.Controllers
 
         [HttpGet("v1/orcamento/{id:int}")]
         public async Task<IActionResult> GetById(
-            [FromServices] ConstrutoraDataContext context,
             [FromRoute] int id)
         {
             try
             {
-                var orcamento = await context.OrcamentosObras
+                var planilha = await _context.PlanilhaObra
                                     .AsNoTracking()
+                                    .Include(x => x.Obras)
                                     .FirstOrDefaultAsync(x => x.Id == id);
 
-                if (orcamento == null)
+                if (planilha == null)
                     return NotFound(new ResultViewModel<string>("Planilha de orçamento de obra não encontrado"));
 
-                return Ok(new ResultViewModel<OrcamentoObra>(orcamento));
+                return Ok(new ResultViewModel<PlanilhaObra>(planilha));
             }
             catch (Exception ex)
             {
@@ -61,7 +63,6 @@ namespace ConstrutoraApi.Controllers
         [HttpPost("v1/orcamentos/importar")]
         public async Task<IActionResult> ImportarPlanilha(
             IFormFile arquivo,
-            [FromServices] ConstrutoraDataContext context,
             [FromForm] string nome,
             [FromForm] DateTime prazo)
         {
@@ -73,60 +74,7 @@ namespace ConstrutoraApi.Controllers
 
             try
             {
-                var planilha = new PlanilhaObra
-                {
-                    Nome = nome,
-                    Prazo = prazo
-                };
-
-
-
-                using (var stream = arquivo.OpenReadStream())
-                {
-                    using var reader = ExcelReaderFactory.CreateReader(stream);
-                    
-                    // A configuração abaixo indica que a PRIMEIRA LINHA contém os cabeçalhos
-                    var result = reader.AsDataSet(new ExcelDataSetConfiguration()
-                    {
-                        ConfigureDataTable = (_) => new ExcelDataTableConfiguration()
-                        {
-                            UseHeaderRow = true
-                        }
-                    });
-
-                    var tabela = result.Tables[0];
-
-                    foreach (DataRow row in tabela.Rows)
-                    {
-                        // Validação para pular linhas vazias
-                        if (string.IsNullOrWhiteSpace(row[0]?.ToString()))
-                            continue;
-
-                        var orcamento = new OrcamentoObra
-                        {
-                            Item = row[0].ToString(),
-                            Codigo = row[1].ToString(),
-                            Servico = row[2].ToString(),
-                            Descricao = row[3].ToString(),
-                            UnidadeMedida = row[4].ToString(),
-                            Qtd = ObterDecimal(row[5]),
-                            CustoMat = ObterDecimal(row[6]),
-                            CustoMO = ObterDecimal(row[7]),
-                            CustoEquip = ObterDecimal(row[8]),
-                            CustoUnitTotal = ObterDecimal(row[9]),
-                            CustoTotal = ObterDecimal(row[10]),
-                            Bdi = ObterDecimal(row[11]),
-                            PrecoUnit = ObterDecimal(row[12]),
-                            PrecoTotal = ObterDecimal(row[13]),
-                            Peso = ObterDecimal(row[14])
-                        };
-
-                        planilha.Obras.Add(orcamento);
-                    }
-                }
-
-                await context.PlanilhaObra.AddAsync(planilha);
-                await context.SaveChangesAsync();
+                var planilha = await _excelService.ImportarPlanilhaAsync(arquivo, nome, prazo);
 
                 return Ok(new {message = $"Planilha '{nome}' importada com {planilha.Obras.Count} itens!"});
             }
@@ -138,64 +86,19 @@ namespace ConstrutoraApi.Controllers
 
         [HttpGet("v1/orcamento/exportar/{id:int}")]
         public async Task<IActionResult> Exportar(
-            [FromServices] ConstrutoraDataContext context,
             [FromRoute] int id)
         {
             try
             {
-                var orcamento = await context.OrcamentosObras
+                var orcamentos = await _context.OrcamentosObras
                                         .AsNoTracking()
                                         .Where(x => x.IdPlanilhaObra == id)
                                         .ToListAsync();
 
-                if (orcamento == null)
+                if (orcamentos == null)
                     return NotFound(new ResultViewModel<string>("Planilha não encontrada!"));
 
-                using var workbook = new XLWorkbook();
-                var worksheet = workbook.AddWorksheet("Custos de Obra");
-
-                // Cria o cabeçalho
-                string[] cabecalhos = { "Item", "Código", "Serviço", "Descrição", "UnidadeMedida", "Qtd", "CustoMat", "CustoMO", "CustoEquip", "CustoUnitTotal", "CustoTotal", "BDI", "PreçoUnit", "PreçoTotal", "Peso" };
-                for (int i = 0; i < cabecalhos.Length; i++)
-                {
-                    worksheet.Cell(1, i + 1).Value = cabecalhos[i];
-                }
-
-                int linha = 2;
-                foreach (var item in orcamento)
-                {
-                    worksheet.Cell(linha, 1).Value = item.Item;
-                    worksheet.Cell(linha, 2).Value = item.Codigo;
-                    worksheet.Cell(linha, 3).Value = item.Servico;
-                    worksheet.Cell(linha, 4).Value = item.Descricao;
-                    worksheet.Cell(linha, 5).Value = item.UnidadeMedida;
-                    worksheet.Cell(linha, 6).Value = item.Qtd;
-                    worksheet.Cell(linha, 7).Value = item.CustoMat;
-                    worksheet.Cell(linha, 8).Value = item.CustoMO;
-                    worksheet.Cell(linha, 9).Value = item.CustoEquip;
-                    worksheet.Cell(linha, 10).Value = item.CustoUnitTotal;
-                    worksheet.Cell(linha, 11).Value = item.CustoTotal;
-                    worksheet.Cell(linha, 12).Value = item.Bdi;
-                    worksheet.Cell(linha, 13).Value = item.PrecoUnit;
-                    worksheet.Cell(linha, 14).Value = item.PrecoTotal;
-                    worksheet.Cell(linha, 15).Value = item.Peso;
-                    linha++;
-                }
-
-                // Cria a tabela e aplica tema
-                int lastRow = linha - 1;
-                var range = worksheet.Range(1, 1, lastRow, cabecalhos.Length);
-                var table = range.CreateTable("TabelaCustos");
-
-                table.Theme = XLTableTheme.TableStyleMedium9;
-                table.ShowAutoFilter = true;
-                table.ShowTotalsRow = true;
-
-                worksheet.Columns().AdjustToContents();
-
-                using var stream = new MemoryStream();
-                workbook.SaveAs(stream);
-                var conteudo = stream.ToArray();
+                var conteudo = _excelService.GerarRelatorioOrcamento(orcamentos);
 
                 return File(conteudo,
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -209,18 +112,17 @@ namespace ConstrutoraApi.Controllers
 
         [HttpDelete("v1/orcamento/{id:int}")]
         public async Task<IActionResult> Delete(
-            [FromServices] ConstrutoraDataContext context,
             [FromRoute] int id)
         {
             try
             {
-                var orcamento = await context.OrcamentosObras.FirstOrDefaultAsync(x => x.Id == id);
+                var planilha = await _context.PlanilhaObra.FirstOrDefaultAsync(x => x.Id == id);
 
-                if (orcamento == null)
-                    NotFound(new ResultViewModel<string>("Planilha de orçamento de obra não encontrado"));
+                if (planilha == null)
+                    return NotFound(new ResultViewModel<string>("Planilha de orçamento de obra não encontrado"));
 
-                context.OrcamentosObras.Remove(orcamento);
-                await context.SaveChangesAsync();
+                _context.PlanilhaObra.Remove(planilha);
+                await _context.SaveChangesAsync();
 
                 return Ok("Planilha removida com sucesso!");
             }
@@ -228,18 +130,6 @@ namespace ConstrutoraApi.Controllers
             {
                 return StatusCode(500, new ResultViewModel<string>($"Erro ao remover a planilha: {ex.Message}"));
             }
-        }
-
-        // Helper para converter os valores
-        private decimal ObterDecimal(object valor)
-        {
-            if (valor == null || string.IsNullOrWhiteSpace(valor.ToString()))
-                return 0m;
-
-            if (decimal.TryParse(valor.ToString(), NumberStyles.Number, CultureInfo.CurrentCulture, out decimal resultado))
-                return resultado;
-
-            return 0m;
         }
     }
 }
