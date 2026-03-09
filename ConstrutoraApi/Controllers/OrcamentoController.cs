@@ -104,9 +104,49 @@ namespace ConstrutoraApi.Controllers
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             $"Relatorio_Custos.xlsx");
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 return StatusCode(500, new ResultViewModel<string>($"Erro ao exportar a planilha: {ex.Message}"));
+            }
+        }
+
+        [HttpPut("v1/orcamento/{id:int}")]
+        public async Task<IActionResult> Put(
+            [FromRoute] int id,
+            [FromBody] OrcamentoObra model)
+        {
+            var orcamento = await _context.OrcamentosObras
+                                    .FirstOrDefaultAsync(x => x.Id == id);
+
+            if (orcamento == null)
+                return NotFound(new ResultViewModel<string>("Orçamento não encontrado"));
+
+            try
+            {
+                orcamento.Item = model.Item;
+                orcamento.Codigo = model.Codigo;
+                orcamento.Servico = model.Servico;
+                orcamento.Descricao = model.Descricao;
+                orcamento.UnidadeMedida = model.UnidadeMedida;
+                orcamento.Qtd = model.Qtd;
+                orcamento.CustoMat = model.CustoMat;
+                orcamento.CustoMO = model.CustoMO;
+                orcamento.CustoEquip = model.CustoEquip;
+                orcamento.CustoUnitTotal = model.CustoUnitTotal;
+                orcamento.CustoTotal = model.CustoTotal;
+                orcamento.Bdi = model.Bdi;
+                orcamento.PrecoUnit = model.PrecoUnit;
+                orcamento.PrecoTotal = model.PrecoTotal;
+                orcamento.Peso = model.Peso;
+
+                _context.OrcamentosObras.Update(orcamento);
+                await _context.SaveChangesAsync();
+
+                return Ok(new ResultViewModel<OrcamentoObra>(orcamento));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ResultViewModel<string>($"Erro ao atualizar a planilha: {ex.Message}"));
             }
         }
 
